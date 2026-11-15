@@ -1,6 +1,6 @@
 // Tracker Service Worker
 // Uygulama dosyalarını değiştirdiğinde CACHE_VERSION numarasını artır.
-const CACHE_VERSION = 'tracker-v5';
+const CACHE_VERSION = 'tracker-v6';
 
 const APP_SHELL = [
   './',
