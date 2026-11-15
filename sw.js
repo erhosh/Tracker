@@ -1,14 +1,15 @@
 // Tracker Service Worker
 // Uygulama dosyalarını değiştirdiğinde CACHE_VERSION numarasını artır.
-const CACHE_VERSION = 'tracker-v2';
+const CACHE_VERSION = 'tracker-v5';
 
 const APP_SHELL = [
   './',
   './index.html',
   './manifest.webmanifest',
   './icon-192.png',
+  './icon-384.png',
   './icon-512.png',
-  './icon-maskable-512.png',
+  './icon-1024.png',
   './apple-touch-icon.png',
   './favicon-32.png',
   './favicon-48.png'
