@@ -13,6 +13,7 @@
 <title>Tracker</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 <style>
 
@@ -1038,6 +1039,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
   <div class="card" style="margin-bottom:16px;border-color:var(--accent)">
     <div class="card-title">☁️ Bulut Senkronizasyon (Firebase)</div>
     <div id="fb-status" style="font-size:12px;font-family:var(--mono);color:var(--muted2);margin-bottom:12px">Bağlantı bekleniyor...</div>
+
+    <!-- Google girişi -->
+    <div id="fb-login-panel" style="display:none;margin-bottom:12px">
+      <div style="font-size:12px;color:var(--muted2);font-family:var(--mono);margin-bottom:10px">
+        Senkronizasyon için Google hesabınla giriş yapmalısın. Verin yalnızca senin hesabına özel saklanır.
+      </div>
+      <button class="btn btn-p btn-sm" onclick="fbGoogleLogin()">🔐 Google ile Giriş Yap</button>
+    </div>
+    <div id="fb-user-line" style="display:none;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;font-size:12px;font-family:var(--mono);color:var(--muted2)">
+      <span id="fb-user-email"></span>
+      <button class="btn btn-g btn-sm" onclick="fbGoogleLogout()">Çıkış</button>
+    </div>
 
     <!-- Bağlı değilse: kod oluştur / gir -->
     <div id="fb-connect-panel">
@@ -5452,7 +5465,8 @@ var firebaseConfig = {
   storageBucket: "tracker-49c34.firebasestorage.app",
   messagingSenderId: "930984105000",
   appId: "1:930984105000:web:9f70ecfdc67c808709911d",
-  databaseURL: "https://tracker-49c34-default-rtdb.europe-west1.firebasedatabase.app"
+  databaseURL: "https://tracker-49c34-default-rtdb.europe-west1.firebasedatabase.app",
+  measurementId: "G-74GJXLWJFS"
 };
 
 var fbApp = null;
@@ -5463,6 +5477,51 @@ var fbAutoSyncTimer = null;
 var FB_CODE_KEY = 'fb_sync_code';
 var FB_AUTOSYNC_KEY = 'fb_autosync';
 
+var fbUid = null;
+function fbPath(code) { return 'users/' + fbUid + '/tracker/' + code; }
+
+function fbErrText(e) {
+  var c = (e && e.code) || '', m = (e && e.message) || String(e);
+  if(c === 'auth/unauthorized-domain') return 'Bu adres Firebase yetkili alan adlarında yok (Authentication → Settings → Authorized domains)';
+  if(c === 'auth/operation-not-allowed') return 'Google girişi Firebase\'de etkin değil';
+  if(c === 'auth/popup-closed-by-user' || c === 'auth/cancelled-popup-request') return 'Giriş penceresi kapatıldı';
+  if(c === 'auth/network-request-failed') return 'Ağ hatası (Google servislerine erişilemiyor olabilir)';
+  return m;
+}
+
+function fbGoogleLogin() {
+  var auth = firebase.auth();
+  var p = new firebase.auth.GoogleAuthProvider();
+  p.setCustomParameters({prompt: 'select_account'});
+  auth.signInWithPopup(p).catch(function(e) {
+    if(e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment') {
+      auth.signInWithRedirect(p);
+    } else {
+      fbSetStatus('⚠️ Giriş başarısız: ' + fbErrText(e), 'var(--red)');
+    }
+  });
+}
+
+function fbGoogleLogout() {
+  if(!confirm('Google oturumu kapatılsın mı? Senkron durur, cihazdaki veriler silinmez.')) return;
+  firebase.auth().signOut();
+}
+
+function fbUserUI(u) {
+  var lp = document.getElementById('fb-login-panel');
+  var ul = document.getElementById('fb-user-line');
+  var ue = document.getElementById('fb-user-email');
+  var cp = document.getElementById('fb-connect-panel');
+  var dp = document.getElementById('fb-connected-panel');
+  if(lp) lp.style.display = u ? 'none' : 'block';
+  if(ul) ul.style.display = u ? 'flex' : 'none';
+  if(ue && u) ue.textContent = '👤 ' + (u.email || u.displayName || 'Google hesabı');
+  if(!u) {
+    if(cp) cp.style.display = 'none';
+    if(dp) dp.style.display = 'none';
+  }
+}
+
 function fbInit() {
   try {
     if(!firebase.apps.length) {
@@ -5470,17 +5529,39 @@ function fbInit() {
     } else {
       fbApp = firebase.apps[0];
     }
-    fbDb = firebase.database(fbApp);
+  } catch(e) {
+    fbSetStatus('⚠️ Firebase bağlanamadı: ' + e.message, 'var(--red)');
+    return;
+  }
+  fbSetStatus('⏳ Oturum denetleniyor…');
+  firebase.auth().onAuthStateChanged(function(u) {
+    if(u && !u.isAnonymous) {
+      fbUid = u.uid;
+      fbUserUI(u);
+      fbAfterAuth();
+    } else {
+      if(fbDb && fbSyncCode && fbUid) { try { fbDb.ref(fbPath(fbSyncCode) + '/data').off(); } catch(e) {} }
+      fbUid = null;
+      fbDb = null;
+      fbUserUI(null);
+      fbSetStatus('🔐 Senkronizasyon için Google ile giriş yap', 'var(--yellow)');
+    }
+  });
+}
 
-    // Kayıtlı kod varsa otomatik bağlan
+function fbAfterAuth() {
+  try {
+    fbDb = firebase.database(fbApp);
     var savedCode = localStorage.getItem(FB_CODE_KEY);
     if(savedCode) {
       fbSyncCode = savedCode;
       fbShowConnected();
-      // Otomatik senkron açıksa başlat
       if(localStorage.getItem(FB_AUTOSYNC_KEY) === 'on') {
         fbStartAutoSync();
       }
+    } else {
+      var cp = document.getElementById('fb-connect-panel');
+      if(cp) cp.style.display = 'block';
     }
     fbSetStatus('✅ Firebase bağlantısı hazır', 'var(--green)');
   } catch(e) {
@@ -5506,7 +5587,7 @@ function fbCreateCode() {
   fbSyncCode = code;
   localStorage.setItem(FB_CODE_KEY, code);
   // Firebase'de boş slot oluştur
-  fbDb.ref('sync/' + code + '/meta').set({
+  fbDb.ref(fbPath(code) + '/meta').set({
     created: new Date().toISOString(),
     device: navigator.userAgent.slice(0,50)
   }).then(function() {
@@ -5526,7 +5607,7 @@ function fbConnectCode() {
   if(!fbDb) { fbSetStatus('⚠️ Firebase bağlı değil!', 'var(--red)'); return; }
 
   fbSetStatus('🔄 Kontrol ediliyor...', 'var(--muted2)');
-  fbDb.ref('sync/' + code).once('value').then(function(snap) {
+  fbDb.ref(fbPath(code)).once('value').then(function(snap) {
     if(!snap.exists()) {
       fbSetStatus('❌ Bu kod bulunamadı! Kodu kontrol edin.', 'var(--red)');
       return;
@@ -5574,7 +5655,7 @@ function fbPush() {
     updatedAt: new Date().toISOString(),
     device: navigator.userAgent.slice(0,50)
   };
-  fbDb.ref('sync/' + fbSyncCode + '/data').set(data).then(function() {
+  fbDb.ref(fbPath(fbSyncCode) + '/data').set(data).then(function() {
     fbSetStatus('✅ Buluta yüklendi: ' + new Date().toLocaleTimeString('tr-TR'), 'var(--green)');
     addBackupLog('Firebase yüklendi');
     renderBackupPage();
@@ -5586,7 +5667,7 @@ function fbPush() {
 function fbPull() {
   if(!fbDb || !fbSyncCode) { fbSetStatus('⚠️ Önce bir kod ile bağlanın!', 'var(--yellow)'); return; }
   fbSetStatus('⬇️ Buluttan indiriliyor...', 'var(--accent)');
-  fbDb.ref('sync/' + fbSyncCode + '/data').once('value').then(function(snap) {
+  fbDb.ref(fbPath(fbSyncCode) + '/data').once('value').then(function(snap) {
     if(!snap.exists() || !snap.val().payload) {
       fbSetStatus('⚠️ Bulutta henüz veri yok. Önce başka cihazdan yükleyin.', 'var(--yellow)');
       return;
@@ -5651,7 +5732,7 @@ function fbStartAutoSync() {
   localStorage.setItem(FB_AUTOSYNC_KEY, 'on');
   fbUpdateAutoSyncBtn();
   // Firebase realtime listener — bulut değişince otomatik indir
-  fbDb.ref('sync/' + fbSyncCode + '/data').on('value', function(snap) {
+  fbDb.ref(fbPath(fbSyncCode) + '/data').on('value', function(snap) {
     if(!snap.exists() || !snap.val().payload) return;
     var val = snap.val();
     // Sadece başka bir cihaz güncellediyse uygula
@@ -5675,7 +5756,7 @@ function fbStopAutoSync() {
   fbAutoSyncOn = false;
   localStorage.removeItem(FB_AUTOSYNC_KEY);
   if(fbDb && fbSyncCode) {
-    fbDb.ref('sync/' + fbSyncCode + '/data').off();
+    fbDb.ref(fbPath(fbSyncCode) + '/data').off();
   }
   fbUpdateAutoSyncBtn();
   fbSetStatus('⏹ Otomatik senkron durduruldu', 'var(--muted2)');
@@ -5702,7 +5783,7 @@ function fbSyncOnSave(data) {
     // Throttle: çok sık yazma yapma (500ms debounce)
     if(fbSyncOnSave._timer) clearTimeout(fbSyncOnSave._timer);
     fbSyncOnSave._timer = setTimeout(function() {
-      fbDb.ref('sync/' + fbSyncCode + '/data').set({
+      fbDb.ref(fbPath(fbSyncCode) + '/data').set({
         payload: JSON.stringify(data),
         updatedAt: new Date().toISOString(),
         device: navigator.userAgent.slice(0,50)
