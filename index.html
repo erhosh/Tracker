@@ -973,6 +973,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 
     <div id="s-cat-preview" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px"></div>
 
+    <div id="s-clear-logs-row" style="display:none;margin-bottom:14px;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:10px;padding:12px">
+      <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:var(--text);font-family:var(--mono);line-height:1.5">
+        <input type="checkbox" id="s-clear-logs" style="width:16px;height:16px;margin-top:2px;cursor:pointer;flex-shrink:0"/>
+        <span>🗑️ Geçmiş çalışmaları sil (hedefe sıfırdan başla)<br><span style="font-size:10px;color:var(--muted2)">Bu hedefin tüm günlük kayıtları ve bekleme geçmişi kaydederken silinir. Geri alınamaz.</span></span>
+      </label>
+    </div>
+
     <div style="display:flex;gap:8px;flex-wrap:wrap">
       <button class="btn btn-p" id="s-save-btn" onclick="saveGoal()" style="flex:1">💾 Hedefi Kaydet</button>
       <button class="btn btn-g" onclick="resetGoalForm()">↺ Temizle</button>
@@ -2393,7 +2400,7 @@ function updateHideCompletedBtn() {
   var btn = document.getElementById('btn-hide-completed');
   if(!btn) return;
   var on = isHideCompletedOn();
-  btn.textContent = on ? '👁 Tümünü Göster' : '✅ Tamamlananları Gizle';
+  btn.textContent = on ? '👁 Tamamlananları Göster' : '✅ Tamamlananları Gizle';
   btn.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
   btn.style.color       = on ? 'var(--accent)' : 'var(--muted)';
 }
@@ -2414,7 +2421,7 @@ function updateHidePausedBtn() {
   var btn = document.getElementById('btn-hide-paused');
   if(!btn) return;
   var on = isHidePausedOn();
-  btn.textContent = on ? '👁 Tümünü Göster' : '▶ Sadece Devam Edenler';
+  btn.textContent = on ? '👁 Bekleyen/Başlamamışları Göster' : '▶ Sadece Devam Edenler';
   btn.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
   btn.style.color       = on ? 'var(--accent)' : 'var(--muted)';
 }
@@ -4167,6 +4174,8 @@ function fillGoalForm(g) {
   updateCatPreview();
   var btn=document.getElementById('s-save-btn');
   if(btn) btn.textContent='💾 Güncelle';
+  var clrRow=document.getElementById('s-clear-logs-row'); if(clrRow) clrRow.style.display='';
+  var clrCb=document.getElementById('s-clear-logs'); if(clrCb) clrCb.checked=false;
 }
 
 var sCatRows=[];
@@ -4308,6 +4317,15 @@ function saveGoal() {
   if(sEditGoalId) {
     var idx=data.goals.findIndex(function(g){return g.id===sEditGoalId;});
     if(idx>=0){
+      // Geçmiş çalışmaları sil seçeneği: hedefe sıfırdan başla
+      var clearCb = document.getElementById('s-clear-logs');
+      if(clearCb && clearCb.checked) {
+        if(!confirm('"'+data.goals[idx].name+'" hedefinin TÜM geçmiş çalışma kayıtları silinecek. Bu işlem geri alınamaz. Devam edilsin mi?')) return;
+        data.goals[idx].logs = {};
+        data.goals[idx].pauseHistory = [];
+        data.goals[idx].pausedAt = null;
+        data.goals[idx].hiddenPause = [];
+      }
       data.goals[idx].name=name; data.goals[idx].icon=icon; data.goals[idx].color=color;
       data.goals[idx].startDate=startDate;
       // totalDays / plannedDays yönetimi
@@ -4579,6 +4597,8 @@ function resetGoalForm() {
   sCatRows=[];
   sEditGoalId=null;
   var btn=document.getElementById('s-save-btn'); if(btn) btn.textContent='💾 Hedefi Kaydet';
+  var clrRow2=document.getElementById('s-clear-logs-row'); if(clrRow2) clrRow2.style.display='none';
+  var clrCb2=document.getElementById('s-clear-logs'); if(clrCb2) clrCb2.checked=false;
   var prev=document.getElementById('s-cat-preview'); if(prev) prev.innerHTML='';
 }
 
