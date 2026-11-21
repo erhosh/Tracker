@@ -2414,7 +2414,7 @@ function updateHidePausedBtn() {
   var btn = document.getElementById('btn-hide-paused');
   if(!btn) return;
   var on = isHidePausedOn();
-  btn.textContent = on ? '👁 Beklemedekileri Göster' : '⏸ Beklemedekileri Gizle';
+  btn.textContent = on ? '👁 Tümünü Göster' : '▶ Sadece Devam Edenler';
   btn.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
   btn.style.color       = on ? 'var(--accent)' : 'var(--muted)';
 }
@@ -2437,8 +2437,8 @@ function renderGoalSwitcher() {
 
   var goalsToShow = data.goals.filter(function(g) {
     if(g.id === activeId) return true; // aktif hedef her zaman göster
-    // Beklemedeki (duraklatılmış) hedefleri gizle
-    if(hidePaused && goalIsPaused(g)) return false;
+    // Sadece devam edenler: beklemede olanları VE başlangıç tarihi henüz gelmemiş olanları gizle
+    if(hidePaused && (goalIsPaused(g) || (g.startDate && g.startDate > today()))) return false;
     if(!hideCompleted) return true;
     // Tamamlanmış hedefleri gizle
     var isOE = goalIsOpenEnded(g);
