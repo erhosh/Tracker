@@ -717,7 +717,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
   <div class="card" style="margin-bottom:16px">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
       <div class="card-title" style="margin-bottom:0">🎯 Aktif Hedef Seç</div>
-      <button id="btn-hide-completed" onclick="toggleHideCompleted()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:6px;cursor:pointer;white-space:nowrap"></button>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">
+        <button id="btn-hide-paused" onclick="toggleHidePaused()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:6px;cursor:pointer;white-space:nowrap"></button>
+        <button id="btn-hide-completed" onclick="toggleHideCompleted()" style="background:transparent;border:1px solid var(--border);color:var(--muted);font-family:var(--mono);font-size:10px;padding:4px 10px;border-radius:6px;cursor:pointer;white-space:nowrap"></button>
+      </div>
     </div>
     <div id="goal-switcher" style="display:flex;flex-wrap:wrap;gap:10px"></div>
   </div>
@@ -2395,6 +2398,27 @@ function updateHideCompletedBtn() {
   btn.style.color       = on ? 'var(--accent)' : 'var(--muted)';
 }
 
+var HIDE_PAUSED_KEY = 'hide_paused_goals';
+
+function isHidePausedOn() {
+  return localStorage.getItem(HIDE_PAUSED_KEY) === '1';
+}
+
+function toggleHidePaused() {
+  var on = isHidePausedOn();
+  localStorage.setItem(HIDE_PAUSED_KEY, on ? '0' : '1');
+  renderGoalSwitcher();
+}
+
+function updateHidePausedBtn() {
+  var btn = document.getElementById('btn-hide-paused');
+  if(!btn) return;
+  var on = isHidePausedOn();
+  btn.textContent = on ? '👁 Beklemedekileri Göster' : '⏸ Beklemedekileri Gizle';
+  btn.style.borderColor = on ? 'var(--accent)' : 'var(--border)';
+  btn.style.color       = on ? 'var(--accent)' : 'var(--muted)';
+}
+
 function renderGoalSwitcher() {
   var el = document.getElementById('goal-switcher');
   if(!el) return;
@@ -2407,10 +2431,14 @@ function renderGoalSwitcher() {
   }
 
   updateHideCompletedBtn();
+  updateHidePausedBtn();
   var hideCompleted = isHideCompletedOn();
+  var hidePaused = isHidePausedOn();
 
   var goalsToShow = data.goals.filter(function(g) {
     if(g.id === activeId) return true; // aktif hedef her zaman göster
+    // Beklemedeki (duraklatılmış) hedefleri gizle
+    if(hidePaused && goalIsPaused(g)) return false;
     if(!hideCompleted) return true;
     // Tamamlanmış hedefleri gizle
     var isOE = goalIsOpenEnded(g);
