@@ -1489,10 +1489,24 @@ function fmtEquiv(val,unit,cat){
   if(rc.mode==='pages' && unit==='sayfa')  return fmtMin(val*rc.mpp);            // sayfa × (dk/sayfa)
   return '';
 }
+// Düz metin (toast vb.)
+function fmtValPlain(val,unit,cat){
+  var base = fmtValBase(val,unit);
+  var eq = fmtEquiv(val,unit,cat);
+  return eq ? base+' (~'+eq+')' : base;
+}
+// HTML: ana değer ve (~eşdeğer) bölünmez bloklar; sığmazsa eşdeğer alt satıra geçer
 function fmtVal(val,unit,cat){
   var base = fmtValBase(val,unit);
   var eq = fmtEquiv(val,unit,cat);
-  return eq ? base+' (yaklaşık '+eq+')' : base;
+  return eq ? '<span style="white-space:nowrap">'+base+'</span> <span style="white-space:nowrap">(~'+eq+')</span>' : '<span style="white-space:nowrap">'+base+'</span>';
+}
+// HTML: eşdeğer her zaman ikinci satırda, daha küçük ve soluk (dar kutular için)
+function fmtValStack(val,unit,cat){
+  var base = fmtValBase(val,unit);
+  var eq = fmtEquiv(val,unit,cat);
+  return '<span style="white-space:nowrap">'+base+'</span>'
+    + (eq ? '<span style="display:block;white-space:nowrap;font-size:0.68em;font-weight:500;opacity:0.75;margin-top:2px">~'+eq+'</span>' : '');
 }
 // Büyük puntolu kutular için: ana değerin altına küçük karşılık satırı
 function fmtSub(val,unit,cat){
@@ -1691,7 +1705,7 @@ function showPoolAllocPicker(poolId, goalId, catId) {
     overlay.remove();
     renderPoolList();
     renderPoolSummary();
-    toast('✅ '+fmtVal(storedAmount,cat.unit,cat)+' '+pool2.name+' havuzuna eklendi');
+    toast('✅ '+fmtValPlain(storedAmount,cat.unit,cat)+' '+pool2.name+' havuzuna eklendi');
   };
 }
 
@@ -2558,30 +2572,30 @@ function renderCompensatory(g, t, elapsed, endDate, isOpenEnded, isExpiredGoal, 
 
     rows.push(
       '<div style="background:var(--bg);border-radius:10px;padding:12px;margin-bottom:8px">'
-      + '<div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">'
+      + '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px 8px;margin-bottom:10px">'
       + '<span style="font-size:16px">'+cat.icon+'</span>'
-      + '<div style="flex:1;min-width:0">'
+      + '<div style="flex:1 1 140px;min-width:0">'
       + '<div style="font-size:12px;font-weight:700;color:'+catColor+'">'+cat.name+'</div>'
       + '<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">Gunluk plan: '+fmtVal(Math.round(dailyTarget),cat.unit,cat)+'</div>'
       + '</div>'
-      + '<div style="text-align:right">'
+      + '<div style="flex:1 1 100%;text-align:left;padding-left:24px">'
       + '<div style="font-size:11px;color:'+defColor+';font-weight:700">'+defIcon+' '+defText+'</div>'
       + '<div style="font-size:9px;color:var(--muted);font-family:var(--mono)">baslangictan beri</div>'
       + '</div></div>'
       + '<div style="display:flex;gap:8px">'
       + '<div style="flex:1;background:var(--card);border-radius:8px;padding:8px;text-align:center">'
       + '<div style="font-size:8px;color:var(--muted);font-family:var(--mono);letter-spacing:1px;margin-bottom:3px">NORMAL</div>'
-      + '<div style="font-size:14px;font-weight:700;color:var(--muted2)">'+fmtVal(Math.round(todayNormal),cat.unit,cat)+'</div>'
+      + '<div style="font-size:13px;font-weight:700;color:var(--muted2)">'+fmtValStack(Math.round(todayNormal),cat.unit,cat)+'</div>'
       + '</div>'
       + '<div style="display:flex;align-items:center;font-size:16px;color:'+defColor+';">'+(isBehind?'+':isAhead?'\u2212':'=')+'</div>'
       + '<div style="flex:1;background:var(--card);border-radius:8px;padding:8px;text-align:center">'
       + '<div style="font-size:8px;color:var(--muted);font-family:var(--mono);letter-spacing:1px;margin-bottom:3px">TELAFI</div>'
-      + '<div style="font-size:14px;font-weight:700;color:'+defColor+'">'+fmtVal(Math.abs(Math.round(deficit)),cat.unit,cat)+'</div>'
+      + '<div style="font-size:13px;font-weight:700;color:'+defColor+'">'+fmtValStack(Math.abs(Math.round(deficit)),cat.unit,cat)+'</div>'
       + '</div>'
       + '<div style="display:flex;align-items:center;font-size:16px;color:var(--muted)">=</div>'
       + '<div style="flex:1.2;background:var(--card);border:1.5px solid '+catColor+';border-radius:8px;padding:8px;text-align:center">'
       + '<div style="font-size:8px;color:'+catColor+';font-family:var(--mono);letter-spacing:1px;margin-bottom:3px">BUGUN HEDEF</div>'
-      + '<div style="font-size:15px;font-weight:800;color:'+catColor+'">'+fmtVal(Math.round(todayComp),cat.unit,cat)+'</div>'
+      + '<div style="font-size:14px;font-weight:800;color:'+catColor+'">'+fmtValStack(Math.round(todayComp),cat.unit,cat)+'</div>'
       + '</div></div>'
       + (todayDone > 0
         ? '<div style="margin-top:8px;display:flex;justify-content:space-between;font-size:10px;font-family:var(--mono)">'
@@ -2600,7 +2614,7 @@ function renderCompensatory(g, t, elapsed, endDate, isOpenEnded, isExpiredGoal, 
     : 'Programin ilk gunu';
 
   el.innerHTML = '<div class="card">'
-    + '<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">'
+    + '<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:4px 10px;margin-bottom:12px">'
     + '<div class="card-title" style="margin-bottom:0">\u2696\ufe0f Telafili Calisma</div>'
     + '<div style="font-size:10px;color:var(--muted);font-family:var(--mono)">'+rangeText+'</div>'
     + '</div>'
@@ -3246,7 +3260,7 @@ function logConvUpdate(catId) {
   if(!cat || !inp) { out.textContent=''; return; }
   var v = Math.round(parseFloat(inp.value)||0);
   var eq = fmtEquiv(v, cat.unit, cat);
-  out.textContent = eq ? '≈ yaklaşık '+eq : '';
+  out.textContent = eq ? '~'+eq : '';
 }
 
 function refreshLogSidebar() {
