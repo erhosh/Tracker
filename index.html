@@ -2094,6 +2094,8 @@ function isDayPaused(g, d) {
   // başlangıçtan önce kalmış) pauseHistory kayıtlarının yanlış gün sayımına yol
   // açmasını engeller.
   if(!g.startDate || d < g.startDate) return false;
+  // Kullanıcının geçmişe dönük tamamen sildiği günler (aktif gün sayısından düşer)
+  if(g.removedDays && g.removedDays.indexOf(d) > -1) return true;
   // pauseHistory: [{from, to}] — geçmiş bekleme dönemleri
   var history = g.pauseHistory || [];
   for(var i=0; i<history.length; i++) {
@@ -2131,8 +2133,12 @@ function goalElapsed(g){
 // dönemi kapsıyorsa (örn. başlangıç tarihi sonradan ileri alındıysa), bu dönemin
 // yalnızca başlangıç tarihinden SONRAKİ kısmı "kapanmış bekleme günü" sayılır;
 // başlangıçtan önceki kısım hiç sayılmaz.
+function goalRemovedDaysCount(g) {
+  if(!g.removedDays || !g.startDate) return 0;
+  return g.removedDays.filter(function(d){ return d >= g.startDate; }).length;
+}
 function goalClosedPausedDays(g) {
-  return (g.pauseHistory||[]).reduce(function(sum, period){
+  return goalRemovedDaysCount(g) + (g.pauseHistory||[]).reduce(function(sum, period){
     if(!period.to) return sum;
     var from = (g.startDate && period.from < g.startDate) ? g.startDate : period.from;
     var to = period.to;
@@ -2163,7 +2169,7 @@ function goalActiveElapsed(g) {
   var ref = goalIsPaused(g) ? g.pausedAt : t;
   if(!g.startDate || ref < g.startDate) return 0;
   var rawElapsed = Math.min(g.totalDays || 99999, daysBetween(g.startDate, ref) + 1);
-  if(!(g.pauseHistory||[]).length && !g.pausedAt) return rawElapsed; // Hızlı yol: bekleme yok
+  if(!(g.pauseHistory||[]).length && !g.pausedAt && !(g.removedDays||[]).length) return rawElapsed; // Hızlı yol: bekleme/silinen gün yok
   var days = daysInRange(g.startDate, ref);
   var pausedInRange = days.filter(function(d){ return isDayPaused(g, d); }).length;
   return Math.max(0, rawElapsed - pausedInRange);
@@ -3436,6 +3442,7 @@ function saveLogForced() {
     if(poolEl && poolEl.value) entry['pool_'+cat.id]=poolEl.value;
   });
   if(!hasAny&&!note){toast('En az bir değer girin!');return;}
+  restoreRemovedDayIfAny(g, date);
   if(!g.logs[date]) g.logs[date]={entries:[]};
   if(!g.logs[date].entries) g.logs[date].entries=[];
   g.categories.forEach(function(cat){
@@ -3483,6 +3490,7 @@ function saveLog() {
     if(poolEl && poolEl.value) entry['pool_'+cat.id]=poolEl.value;
   });
   if(!hasAny&&!note){alert('En az bir değer girin!');return;}
+  restoreRemovedDayIfAny(g, date);
   if(!g.logs[date]) g.logs[date]={entries:[]};
   if(!g.logs[date].entries) g.logs[date].entries=[];
   g.categories.forEach(function(cat){
@@ -3574,6 +3582,15 @@ function deleteCatAll(date, catId) {
   if(idx>=0){data.goals[idx].logs=g.logs;mgSave(data);}
   htp_load(); htp_checkAutoUntick(date);
   refreshLogSidebar();
+}
+
+// Silinmiş (aktif sayılmayan) bir güne yeni veri girilirse o gün tekrar aktif olur
+function restoreRemovedDayIfAny(g, date) {
+  if(!g || !g.removedDays) return;
+  var i = g.removedDays.indexOf(date);
+  if(i < 0) return;
+  g.removedDays.splice(i, 1);
+  if(!goalIsOpenEnded(g) && g.totalDays > 1 && date >= g.startDate) g.totalDays -= 1;
 }
 
 function deleteLog(date) {
@@ -3873,11 +3890,89 @@ function clearHistoryFilter() {
   renderHistory();
 }
 
+var historySel = {};
+
+function histUpdateSelUI() {
+  var n = Object.keys(historySel).length;
+  var btn = document.getElementById('hist-del-sel');
+  if(btn) { btn.disabled = n === 0; btn.textContent = '🗑 Seçilenleri sil' + (n ? ' ('+n+')' : ''); }
+  var all = document.getElementById('hist-sel-all');
+  if(all) {
+    var cbs = document.querySelectorAll('.hist-sel-cb');
+    all.checked = cbs.length > 0 && n === cbs.length;
+  }
+}
+function histToggleSel(d, on) {
+  if(on) historySel[d] = true; else delete historySel[d];
+  histUpdateSelUI();
+}
+function histSelectAll(on) {
+  historySel = {};
+  document.querySelectorAll('.hist-sel-cb').forEach(function(cb){
+    cb.checked = on;
+    if(on) historySel[cb.getAttribute('data-d')] = true;
+  });
+  histUpdateSelUI();
+}
+function removeSelectedEmptyDays() {
+  removeEmptyDays(Object.keys(historySel));
+}
+
+// Aktif ama veri girilmemiş günleri tamamen sil: gün aktif gün sayısından düşer,
+// beklenen toplam miktar da buna göre azalır. Bekleme gibi program bitişi bir gün uzar.
+function removeEmptyDays(dates) {
+  var data = mgLoad();
+  var g = mgGetActive();
+  if(!g) return;
+  var gi = data.goals.findIndex(function(x){ return x.id === g.id; });
+  if(gi < 0) return;
+  var gg = data.goals[gi];
+  var t = today();
+  var valid = (dates||[]).filter(function(d){
+    return d >= gg.startDate && d < t && !gg.logs[d] && !isDayPaused(gg, d);
+  });
+  if(!valid.length) { toast('Silinecek uygun gün yok'); return; }
+  var msg = valid.length === 1
+    ? valid[0] + ' tarihli boş gün tamamen silinsin mi?\n\nBu gün aktif gün sayısından ve beklenen toplam çalışmadan düşer.'
+    : valid.length + ' boş gün tamamen silinsin mi?\n\nBu günler aktif gün sayısından ve beklenen toplam çalışmadan düşer.';
+  if(!confirm(msg)) return;
+  if(!gg.removedDays) gg.removedDays = [];
+  valid.forEach(function(d){ if(gg.removedDays.indexOf(d) < 0) gg.removedDays.push(d); });
+  if(!goalIsOpenEnded(gg)) gg.totalDays = gg.totalDays + valid.length;
+  mgSave(data);
+  historySel = {};
+  afterRemovedDaysChange();
+  toast('🗑 ' + valid.length + ' gün silindi');
+}
+
+function restoreRemovedDays() {
+  var data = mgLoad();
+  var g = mgGetActive();
+  if(!g) return;
+  var gg = data.goals.find(function(x){ return x.id === g.id; });
+  if(!gg) return;
+  var n = goalRemovedDaysCount(gg);
+  if(!n) return;
+  if(!confirm(n + ' silinmiş gün geri getirilsin mi?')) return;
+  if(!goalIsOpenEnded(gg) && gg.totalDays > n) gg.totalDays -= n;
+  gg.removedDays = [];
+  mgSave(data);
+  afterRemovedDaysChange();
+  toast('↩ ' + n + ' gün geri getirildi');
+}
+
+function afterRemovedDaysChange() {
+  renderHistory();
+  try { renderGoalSwitcher(); } catch(e) {}
+  try { renderGlobalGoalBar(); } catch(e) {}
+  try { renderDash(); } catch(e) {}
+}
+
 function renderHistory() {
   var g=mgGetActive();
   var wrap=document.getElementById('history-wrap');
   var sumEl=document.getElementById('history-filter-summary');
-  if(!g||!Object.keys(g.logs).length){
+  if(!g||(!Object.keys(g.logs).length && !g.startDate)){
     wrap.innerHTML='<div class="nodata"><div class="nodata-icon">📋</div>Henüz kayıt yok</div>';
     if(sumEl) sumEl.innerHTML='';
     return;
@@ -3887,10 +3982,53 @@ function renderHistory() {
 
   if(!filterActive) {
     if(sumEl) sumEl.innerHTML='';
-    var entries=Object.entries(g.logs).sort(function(a,b){return b[0].localeCompare(a[0]);});
+    var entries=Object.entries(g.logs);
+    // Aktif olup veri girilmemiş günleri de listele (başlangıçtan bugüne / bitişe kadar)
+    var tH = today();
+    var endH = goalEndDate(g);
+    var lastH = (endH && endH < tH) ? endH : tH;
+    var emptyDays = [];
+    if(g.startDate && g.startDate <= lastH) {
+      daysInRange(g.startDate, lastH).forEach(function(d){
+        if(!g.logs[d] && !isDayPaused(g, d)) { emptyDays.push(d); entries.push([d, null]); }
+      });
+    }
+    entries.sort(function(a,b){return b[0].localeCompare(a[0]);});
+    // Silinemeyecek (bugün) hariç seçilebilir boş günler
+    var selectable = emptyDays.filter(function(d){ return d < tH; });
+    // Artık var olmayan günleri seçimden temizle
+    Object.keys(historySel).forEach(function(d){ if(selectable.indexOf(d) < 0) delete historySel[d]; });
+    var removedCnt = goalRemovedDaysCount(g);
+    var toolbar = '';
+    if(selectable.length || removedCnt) {
+      toolbar = '<div style="display:flex;align-items:center;flex-wrap:wrap;gap:8px 12px;padding:8px 0 10px;border-bottom:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--muted)">'
+        + (selectable.length
+          ? '<label style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="hist-sel-all" onchange="histSelectAll(this.checked)" style="width:16px;height:16px;cursor:pointer"/> Tüm boş günleri seç ('+selectable.length+')</label>'
+            + '<button id="hist-del-sel" class="btn btn-g btn-sm" style="padding:5px 10px;font-size:11px" onclick="removeSelectedEmptyDays()" disabled>🗑 Seçilenleri sil</button>'
+          : '')
+        + (removedCnt
+          ? '<span style="margin-left:auto">'+removedCnt+' gün silindi · <a href="#" onclick="restoreRemovedDays();return false" style="color:var(--accent)">↩ geri getir</a></span>'
+          : '')
+        + '</div>';
+    }
     var rows=entries.map(function(e){
       var d=e[0],l=e[1];
       var dp=d.split('-'),dateDisp=dp[2]+'.'+dp[1]+'.'+dp[0];
+      if(l===null) {
+        // Aktif ama veri girilmemiş gün
+        var canDel = d < tH;
+        return '<div style="border-bottom:1px solid var(--border)">'
+          +'<div style="display:flex;align-items:center;padding:10px 0;gap:8px;opacity:0.8">'
+          +(canDel
+            ? '<input type="checkbox" class="hist-sel-cb" data-d="'+d+'" '+(historySel[d]?'checked ':'')+'onchange="histToggleSel(\''+d+'\',this.checked)" style="width:16px;height:16px;cursor:pointer;flex-shrink:0"/>'
+            : '<span style="width:16px;flex-shrink:0"></span>')
+          +'<div style="width:84px;font-size:11px;color:var(--muted);font-family:var(--mono);flex-shrink:0">'+dateDisp+'</div>'
+          +'<div style="flex:1;font-size:11px;color:var(--border2);font-family:var(--mono);font-style:italic;min-width:0">'+(canDel?'veri girilmemiş':'bugün — henüz veri yok')+'</div>'
+          +(canDel
+            ? '<button class="btn btn-g btn-sm" style="flex-shrink:0;padding:5px 10px;font-size:14px;line-height:1" onclick="removeEmptyDays([\''+d+'\'])" title="Bu günü tamamen sil">🗑</button>'
+            : '')
+          +'</div></div>';
+      }
       var vals=[];
       g.categories.forEach(function(cat){if(l[cat.id])vals.push('<span style="color:'+(cat.color||'var(--accent)')+'">'+cat.icon+' '+fmtVal(l[cat.id],cat.unit,cat)+'</span>');});
       var noteHtml=l.note?'<div style="font-size:11px;color:var(--muted);font-style:italic;flex-shrink:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="'+l.note+'">'+l.note+'</div>':'<div style="font-size:11px;color:var(--border2)">—</div>';
@@ -3924,7 +4062,8 @@ function renderHistory() {
         +'</div>'
         +'</div>';
     }).join('');
-    wrap.innerHTML='<div>'+rows+'</div>';
+    wrap.innerHTML=toolbar+'<div>'+rows+'</div>';
+    histUpdateSelUI();
     return;
   }
 
@@ -4336,6 +4475,7 @@ function saveGoal() {
       if(clearCb && clearCb.checked) {
         if(!confirm('"'+data.goals[idx].name+'" hedefinin TÜM geçmiş çalışma kayıtları silinecek. Bu işlem geri alınamaz. Devam edilsin mi?')) return;
         data.goals[idx].logs = {};
+        data.goals[idx].removedDays = [];
         data.goals[idx].pauseHistory = [];
         data.goals[idx].pausedAt = null;
         data.goals[idx].hiddenPause = [];
